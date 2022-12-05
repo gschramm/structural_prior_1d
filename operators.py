@@ -2,6 +2,7 @@
 import abc
 import numpy as np
 import numpy.typing as npt
+import numba
 
 
 class LinearOperator(abc.ABC):
@@ -235,16 +236,207 @@ class BowsherGradient1D(LinearOperator):
         return x
 
 
+#------------------------------------------------------------------
+@numba.stencil
+def _conv2d_02(x):
+    return  x[0,2] - x[0,0]
+@numba.stencil
+def _conv2d_01(x):
+    return  x[0,1] - x[0,0]
+@numba.stencil
+def _conv2d_0m1(x):
+    return  x[0,-1] - x[0,0]
+@numba.stencil
+def _conv2d_0m2(x):
+    return  x[0,-2] - x[0,0]
+@numba.stencil
+def _conv2d_11(x):
+    return  x[1,1] - x[0,0]
+@numba.stencil
+def _conv2d_10(x):
+    return  x[1,0] - x[0,0]
+@numba.stencil
+def _conv2d_1m1(x):
+    return  x[1,-1] - x[0,0]
+@numba.stencil
+def _conv2d_m11(x):
+    return  x[-1,1] - x[0,0]
+@numba.stencil
+def _conv2d_m10(x):
+    return  x[-1,0] - x[0,0]
+@numba.stencil
+def _conv2d_m1m1(x):
+    return  x[-1,-1] - x[0,0]
+@numba.stencil
+def _conv2d_20(x):
+    return  x[2,0] - x[0,0]
+@numba.stencil
+def _conv2d_m20(x):
+    return  x[-2,0] - x[0,0]
+
+
+@numba.njit
+def conv2d_02(x):
+    return _conv2d_02(x)
+@numba.njit
+def conv2d_01(x):
+    return _conv2d_01(x)
+@numba.njit
+def conv2d_0m1(x):
+    return _conv2d_0m1(x)
+@numba.njit
+def conv2d_0m2(x):
+    return _conv2d_0m2(x)
+@numba.njit
+def conv2d_11(x):
+    return _conv2d_11(x)
+@numba.njit
+def conv2d_10(x):
+    return _conv2d_10(x)
+@numba.njit
+def conv2d_1m1(x):
+    return _conv2d_1m1(x)
+@numba.njit
+def conv2d_m11(x):
+    return _conv2d_m11(x)
+@numba.njit
+def conv2d_m10(x):
+    return _conv2d_m10(x)
+@numba.njit
+def conv2d_m1m1(x):
+    return _conv2d_m1m1(x)
+@numba.njit
+def conv2d_20(x):
+    return _conv2d_20(x)
+@numba.njit
+def conv2d_m20(x):
+    return _conv2d_m20(x)
+
+
+@numba.njit
+def adjoint_conv2d_02(x):
+    return _conv2d_0m2(x)
+@numba.njit
+def adjoint_conv2d_01(x):
+    return _conv2d_0m1(x)
+@numba.njit
+def adjoint_conv2d_0m1(x):
+    return _conv2d_01(x)
+@numba.njit
+def adjoint_conv2d_0m2(x):
+    return _conv2d_02(x)
+@numba.njit
+def adjoint_conv2d_11(x):
+    return _conv2d_m1m1(x)
+@numba.njit
+def adjoint_conv2d_10(x):
+    return _conv2d_m10(x)
+@numba.njit
+def adjoint_conv2d_1m1(x):
+    return _conv2d_m11(x)
+@numba.njit
+def adjoint_conv2d_m11(x):
+    return _conv2d_1m1(x)
+@numba.njit
+def adjoint_conv2d_m10(x):
+    return _conv2d_10(x)
+@numba.njit
+def adjoint_conv2d_m1m1(x):
+    return _conv2d_11(x)
+@numba.njit
+def adjoint_conv2d_20(x):
+    return _conv2d_m20(x)
+@numba.njit
+def adjoint_conv2d_m20(x):
+    return _conv2d_20(x)
+
+
+
+class BowsherGradient2D(LinearOperator):
+    def __init__(self, x_shape: tuple[int,int], 
+                 weights: None | npt.NDArray = None, 
+                 prior_image: None | npt.NDArray = None, 
+                 num_nearest: int = 12) -> None:
+        self._kernels = [
+        conv2d_02,
+        conv2d_01,
+        conv2d_0m1,
+        conv2d_0m2,
+        conv2d_11,
+        conv2d_10,
+        conv2d_1m1,
+        conv2d_m11,
+        conv2d_m10,
+        conv2d_m1m1,
+        conv2d_20,
+        conv2d_m20]
+
+        self._adjoint_kernels = [
+        adjoint_conv2d_02,
+        adjoint_conv2d_01,
+        adjoint_conv2d_0m1,
+        adjoint_conv2d_0m2,
+        adjoint_conv2d_11,
+        adjoint_conv2d_10,
+        adjoint_conv2d_1m1,
+        adjoint_conv2d_m11,
+        adjoint_conv2d_m10,
+        adjoint_conv2d_m1m1,
+        adjoint_conv2d_20,
+        adjoint_conv2d_m20]
+
+
+        super().__init__(x_shape, (len(self._kernels),) + x_shape)
+
+        self._weights = weights
+        self._prior_image = prior_image
+        self._num_nearest = num_nearest
+  
+        if prior_image is not None:
+            self._setup_weights(self._prior_image)
+
+    def _setup_weights(self, prior_image: npt.NDArray) -> None:
+        inds = np.argsort(np.abs(self.forward(prior_image)), axis=0)
+        self._weights = np.zeros(self.y_shape)
+        for i in range(self._weights.shape[1]):
+            for j in range(self._weights.shape[2]):
+                self._weights[inds[:num_nearest,i,j],i,j] = 1
+
+
+    def forward(self, x):
+        y = np.zeros(self.y_shape)
+        for i, kernel in enumerate(self._kernels):
+            y[i,...] = kernel(x)
+
+        if self._weights is not None:
+            y *= self._weights
+
+        return y
+
+    def adjoint(self, y):
+        if self._weights is not None:
+            y *= self._weights
+
+        x = np.zeros(self.x_shape)
+        for i, kernel in enumerate(self._adjoint_kernels):
+            x += kernel(y[i,...])
+
+        return x
+
+
 if __name__ == '__main__':
     np.random.seed(1)
 
-    n = 100
-    neighbors = (-3, -2, -1, 1, 2, 3)
+    n = 4
+    x = np.pad(np.random.rand(n,n), (2,2))
+
     num_nearest = 3
-    p = np.random.rand(n)
+    prior_image = np.random.rand(*x.shape)
 
-    bg = BowsherGradient1D(n, neighbors, num_nearest, p)
-    bg.adjointness_test()
+    g = BowsherGradient2D(x.shape, prior_image=prior_image, num_nearest=num_nearest)
+    y = np.random.rand(*g.y_shape)
 
-    co = Convolution1D(n, np.random.rand(5))
-    co.adjointness_test()
+    x_fwd = g.forward(x)
+    y_adjoint = g.adjoint(y)
+
+    print((x_fwd*y).sum() / (x*y_adjoint).sum())

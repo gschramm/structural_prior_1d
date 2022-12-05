@@ -22,9 +22,9 @@ parser.add_argument('--prior_noise_level', default=0.01, type=float)
 parser.add_argument('--n', default=256, type=int)
 parser.add_argument('--obj_seed', default=0, type=int)
 parser.add_argument('--noise_seed', default=0, type=int)
-parser.add_argument('--max_iter', default=500, type=int)
+parser.add_argument('--max_iter', default=1000, type=int)
 parser.add_argument('--betas',
-                    default=[0.002, 0.2, 2, 20, 200],
+                    default=[0.003, 0.03, 0.3, 3, 30],
                     type=float,
                     nargs='+')
 parser.add_argument('--neighbors',
@@ -241,7 +241,7 @@ ax[0, 0].set_ylabel('non structural prior')
 ax[1, 0].set_ylabel('structural prior')
 
 for axx in ax.ravel():
-    axx.set_ylim(-0.2, 1.3 * x_true.max())
+    axx.set_ylim(-0.2 * x_true.max(), 1.4 * x_true.max())
     axx.grid(ls=':')
 
 fig.suptitle('mismatched kernel')
@@ -265,7 +265,7 @@ for i, beta in enumerate(betas):
     ax2[0, i].plot(np.arange(n),
                    recons_non_str_matched[i, :],
                    color='tab:orange',
-                   label='it. recon')
+                   label='reconconstruction')
 
     ax2[1, i].fill_between(np.arange(n),
                            x_true,
@@ -288,7 +288,7 @@ ax2[0, 0].set_ylabel('non structural prior')
 ax2[1, 0].set_ylabel('structural prior')
 
 for axx in ax2.ravel():
-    axx.set_ylim(-0.2, 1.3 * x_true.max())
+    axx.set_ylim(-0.2 * x_true.max(), 1.4 * x_true.max())
     axx.grid(ls=':')
 
 fig2.suptitle('matched kernel')
@@ -332,3 +332,18 @@ if add_standalone:
 
 fig3.tight_layout()
 fig3.show()
+
+fig4, ax4 = plt.subplots(1, 3, figsize=(9, 3), sharex=True, sharey=True)
+for i in range(3):
+    ax4[i].fill_between(np.arange(n),
+                        x_true,
+                        0 * x_true + x_true.min(),
+                        color=(0.8, 0.8, 0.8),
+                        label='true signal')
+    ax4[i].grid(ls=':')
+
+ax4[1].plot(noise_free_data)
+ax4[2].plot(noisy_data)
+ax4[0].set_ylim(ax[0, 0].get_ylim())
+fig4.tight_layout()
+fig4.show()
