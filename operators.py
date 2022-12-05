@@ -135,10 +135,10 @@ class Convolution1D(LinearOperator):
 
 
 class GaussianConv2D(LinearOperator):
-    def __init__(self, x_shape: tuple[int, int], sigma: float):
+    def __init__(self, x_shape: tuple[int, int], sigma: float) -> None:
         super().__init__(x_shape, x_shape)
         self._sigma = sigma
-    
+
     def forward(self, x: npt.NDArray) -> npt.NDArray:
         return gaussian_filter(x, self._sigma)
 
@@ -369,7 +369,7 @@ class BowsherGradient2D(LinearOperator):
     def __init__(self, x_shape: tuple[int,int], 
                  weights: None | npt.NDArray = None, 
                  prior_image: None | npt.NDArray = None, 
-                 num_nearest: int = 12) -> None:
+                 num_nearest: int | None = None) -> None:
         self._kernels = [
         conv2d_02,
         conv2d_01,
@@ -403,17 +403,25 @@ class BowsherGradient2D(LinearOperator):
 
         self._weights = weights
         self._prior_image = prior_image
-        self._num_nearest = num_nearest
+
+        if num_nearest is None:
+            self._num_nearest = len(self._kernels)
+        else: 
+            self._num_nearest = num_nearest
   
         if prior_image is not None:
             self._setup_weights(self._prior_image)
+
+    @property
+    def num_nearest(self) -> int:
+        return self._num_nearest
 
     def _setup_weights(self, prior_image: npt.NDArray) -> None:
         inds = np.argsort(np.abs(self.forward(prior_image)), axis=0)
         self._weights = np.zeros(self.y_shape)
         for i in range(self._weights.shape[1]):
             for j in range(self._weights.shape[2]):
-                self._weights[inds[:num_nearest,i,j],i,j] = 1
+                self._weights[inds[:self._num_nearest,i,j],i,j] = 1
 
 
     def forward(self, x):
@@ -435,29 +443,3 @@ class BowsherGradient2D(LinearOperator):
             x += kernel(y[i,...])
 
         return x
-
-
-if __name__ == '__main__':
-    np.random.seed(1)
-
-    n = 4
-    x = np.pad(np.random.rand(n,n), (2,2))
-
-    num_nearest = 3
-    prior_image = np.random.rand(*x.shape)
-
-    g = BowsherGradient2D(x.shape, prior_image=prior_image, num_nearest=num_nearest)
-    y = np.random.rand(*g.y_shape)
-
-    x_fwd = g.forward(x)
-    y_adjoint = g.adjoint(y)
-
-    print((x_fwd*y).sum() / (x*y_adjoint).sum())
-
-    g2 = GaussianConv2D(x.shape, 2.5)
-    y2 = np.random.rand(*x.shape)
-
-    x_fwd2 = g2.forward(x)
-    y2_adjoint = g2.adjoint(y2)
-
-    print((x_fwd2*y2).sum() / (x*y2_adjoint).sum())
