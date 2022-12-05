@@ -3,6 +3,7 @@ import abc
 import numpy as np
 import numpy.typing as npt
 import numba
+from scipy.ndimage import gaussian_filter
 
 
 class LinearOperator(abc.ABC):
@@ -131,6 +132,18 @@ class Convolution1D(LinearOperator):
     def adjoint(self, y: npt.NDArray) -> npt.NDArray:
         tmp = np.convolve(y * self._mask, self._kernel, mode='full')
         return tmp[self._half_kernel_size:-self._half_kernel_size]
+
+
+class GaussianConv2D(LinearOperator):
+    def __init__(self, x_shape: tuple[int, int], sigma: float):
+        super().__init__(x_shape, x_shape)
+        self._sigma = sigma
+    
+    def forward(self, x: npt.NDArray) -> npt.NDArray:
+        return gaussian_filter(x, self._sigma)
+
+    def adjoint(self, y: npt.NDArray) -> npt.NDArray:
+        return gaussian_filter(y, self._sigma)
 
 
 class BowsherGradient1D(LinearOperator):
@@ -440,3 +453,11 @@ if __name__ == '__main__':
     y_adjoint = g.adjoint(y)
 
     print((x_fwd*y).sum() / (x*y_adjoint).sum())
+
+    g2 = GaussianConv2D(x.shape, 2.5)
+    y2 = np.random.rand(*x.shape)
+
+    x_fwd2 = g2.forward(x)
+    y2_adjoint = g2.adjoint(y2)
+
+    print((x_fwd2*y2).sum() / (x*y2_adjoint).sum())
