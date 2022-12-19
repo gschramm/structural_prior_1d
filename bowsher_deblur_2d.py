@@ -6,6 +6,8 @@ import numpy.typing as npt
 import matplotlib.pyplot as plt
 from scipy.optimize import fmin_cg
 from PIL import Image
+from pathlib import Path
+import nibabel as nib
 
 from operators import BowsherGradient2D, GaussianConv2D
 from functionals import SmoothNorm, TotalCost, L2NormSquared
@@ -16,7 +18,7 @@ from functionals import SmoothNorm, TotalCost, L2NormSquared
 parser = argparse.ArgumentParser()
 parser.add_argument('--max_iter', default=200, type=int)
 parser.add_argument('--betas',
-                    default=[1e-5,1e-4,1e-3,1e-2],
+                    default=[1e-5, 1e-4, 1e-3, 1e-2],
                     type=float,
                     nargs='+')
 parser.add_argument('--num_nearest', default=3, type=int)
@@ -32,8 +34,12 @@ sigma: float = args.sigma
 data_norm: SmoothNorm = L2NormSquared()
 prior_norm: SmoothNorm = L2NormSquared()
 
-xlim = (100,170)
-ylim = (140,70)
+xlim = (100, 170)
+ylim = (140, 70)
+
+res_dir = Path(
+    'results') / f'it_{num_iter}_nearest_{num_nearest}_sigma_{sigma}'
+res_dir.mkdir(exist_ok=True)
 #----------------------------------------------------------------------------
 #----------------------------------------------------------------------------
 #--- load images
@@ -47,10 +53,10 @@ prior_image = np.array(Image.open('data/t1.png')).astype(np.float64)
 prior_image /= prior_image.max()
 
 data_operator = GaussianConv2D(x_true.shape, sigma)
-structural_prior_operator = BowsherGradient2D(x_true.shape, num_nearest = num_nearest,
-                                              prior_image = prior_image)
+structural_prior_operator = BowsherGradient2D(x_true.shape,
+                                              num_nearest=num_nearest,
+                                              prior_image=prior_image)
 non_structural_prior_operator = BowsherGradient2D(x_true.shape)
-
 
 #----------------------------------------------------------------------------
 #----------------------------------------------------------------------------
@@ -68,8 +74,8 @@ noisy_data = noise_free_data.copy()
 
 #----------------------------------------------------------------------------------------
 
-recons_str_matched = np.zeros((betas.size,) + x_true.shape)
-recons_non_str_matched = np.zeros((betas.size,) + x_true.shape)
+recons_str_matched = np.zeros((betas.size, ) + x_true.shape)
+recons_non_str_matched = np.zeros((betas.size, ) + x_true.shape)
 
 # initial recon
 x0 = np.zeros(data_operator.x_shape).ravel()
@@ -84,7 +90,6 @@ for i, beta in enumerate(betas):
     cost_non_str_matched = TotalCost(
         noisy_data, data_operator, data_norm, non_structural_prior_operator,
         prior_norm, beta / non_structural_prior_operator.num_nearest)
-
 
     # recon using conjugate gradient optimizer, structural prior and matched kernel
     res_str_m = fmin_cg(cost_str_matched,
@@ -103,13 +108,26 @@ for i, beta in enumerate(betas):
 
     recons_non_str_matched[i, ...] = res_non_str_m[0].reshape(
         data_operator.x_shape)
+#--------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------
+# save the results
+nib.save(nib.Nifti1Image(x_true, np.eye(4)), res_dir / 'true_image.nii')
+nib.save(nib.Nifti1Image(prior_image, np.eye(4)), res_dir / 'prior_image.nii')
+nib.save(nib.Nifti1Image(noisy_data, np.eye(4)), res_dir / 'blurred_image.nii')
+nib.save(
+    nib.Nifti1Image(np.transpose(recons_str_matched, [1, 2, 0]), np.eye(4)),
+    res_dir / 'agr_deblurred_images.nii')
+nib.save(
+    nib.Nifti1Image(np.transpose(recons_non_str_matched, [1, 2, 0]),
+                    np.eye(4)), res_dir / 'nonagr_deblurred_images.nii')
 
 #--------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------
 #--------------------------------------------------------------------------------
 # show the results
 
-ims = dict(cmap=plt.cm.Greys_r, vmin = 0, vmax = 1.0)
+ims = dict(cmap=plt.cm.Greys_r, vmin=0, vmax=1.0)
 fs = dict(fontsize='small')
 
 fig, ax = plt.subplots(2,
@@ -118,38 +136,42 @@ fig, ax = plt.subplots(2,
                        sharex=True,
                        sharey=True)
 for i, beta in enumerate(betas):
-    ax[0, i+1].imshow(recons_non_str_matched[i,...], **ims)
-    ax[1, i+1].imshow(recons_str_matched[i,...], **ims)
-    ax[0, i+1].set_title(f'deblurred non-structural prior {beta:.1E}', **fs)
-    ax[1, i+1].set_title(f'deblurred structural prior {beta:.1E}', **fs)
+    ax[0, i + 1].imshow(recons_non_str_matched[i, ...], **ims)
+    ax[1, i + 1].imshow(recons_str_matched[i, ...], **ims)
+    ax[0, i + 1].set_title(f'deblurred non-structural prior {beta:.1E}', **fs)
+    ax[1, i + 1].set_title(f'deblurred structural prior {beta:.1E}', **fs)
 
-ax[0,0].imshow(noisy_data, **ims)
-ax[0,0].set_title('blurred T2', **fs)
-ax[1,0].imshow(x_true, **ims)
-ax[1,0].set_title('true T2', **fs)
+ax[0, 0].imshow(noisy_data, **ims)
+ax[0, 0].set_title('blurred T2', **fs)
+ax[1, 0].imshow(x_true, **ims)
+ax[1, 0].set_title('true T2', **fs)
 
 for axx in ax.ravel():
     axx.set_axis_off()
 
 fig.tight_layout()
+fig.savefig(res_dir / 'fig1.png')
 fig.show()
 
 # same figure but zoomed
 fig2, ax2 = plt.subplots(2,
-                       betas.size + 1,
-                       figsize=((betas.size + 1) * 3, 2 * 3),
-                       sharex=True,
-                       sharey=True)
+                         betas.size + 1,
+                         figsize=((betas.size + 1) * 3, 2 * 3),
+                         sharex=True,
+                         sharey=True)
 for i, beta in enumerate(betas):
-    ax2[0, i+1].imshow(recons_non_str_matched[i,...], **ims)
-    ax2[1, i+1].imshow(recons_str_matched[i,...], **ims)
-    ax2[0, i+1].set_title(f'deblurred non-structural prior {beta:.1E} (zoom)', **fs)
-    ax2[1, i+1].set_title(f'deblurred structural prior {beta:.1E} (zoom)', **fs)
+    ax2[0, i + 1].imshow(recons_non_str_matched[i, ...], **ims)
+    ax2[1, i + 1].imshow(recons_str_matched[i, ...], **ims)
+    ax2[0,
+        i + 1].set_title(f'deblurred non-structural prior {beta:.1E} (zoom)',
+                         **fs)
+    ax2[1, i + 1].set_title(f'deblurred structural prior {beta:.1E} (zoom)',
+                            **fs)
 
-ax2[0,0].imshow(noisy_data, **ims)
-ax2[0,0].set_title('blurred T2 (zoom)', **fs)
-ax2[1,0].imshow(x_true, **ims)
-ax2[1,0].set_title('true T2 (zoom)', **fs)
+ax2[0, 0].imshow(noisy_data, **ims)
+ax2[0, 0].set_title('blurred T2 (zoom)', **fs)
+ax2[1, 0].imshow(x_true, **ims)
+ax2[1, 0].set_title('true T2 (zoom)', **fs)
 
 for axx in ax2.ravel():
     axx.set_axis_off()
@@ -157,15 +179,15 @@ for axx in ax2.ravel():
     axx.set_ylim(*ylim)
 
 fig2.tight_layout()
+fig2.savefig(res_dir / 'fig2.png')
 fig2.show()
-
 
 #----------------------------------------------------------------------------------
 #----------------------------------------------------------------------------------
 #----------------------------------------------------------------------------------
 #show the structural prior image
 
-fig3, ax3 = plt.subplots(1, 2, figsize=(2*3,3))
+fig3, ax3 = plt.subplots(1, 2, figsize=(2 * 3, 3))
 ax3[0].imshow(prior_image, **ims)
 ax3[0].set_title('structural prior image', **fs)
 ax3[1].imshow(prior_image, **ims)
@@ -175,4 +197,5 @@ ax3[1].set_ylim(*ylim)
 for axx in ax3.ravel():
     axx.set_axis_off()
 fig3.tight_layout()
+fig3.savefig(res_dir / 'fig3.png')
 fig3.show()
